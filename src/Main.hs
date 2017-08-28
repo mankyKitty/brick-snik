@@ -6,10 +6,11 @@ import           Control.Concurrent          (forkIO, threadDelay)
 import qualified Control.Concurrent.STM      as TVar
 import           Control.Concurrent.STM.TVar (TVar)
 
-import           Control.Lens                (to, (.~), (^.), _Wrapped)
+import           Control.Lens                (to, (.~), (^.))
 import           Control.Monad               (forever)
 import           Control.Monad.IO.Class      (liftIO)
 
+import           Data.List.NonEmpty          (NonEmpty ((:|)))
 import           Data.Monoid                 ((<>))
 
 import           Brick                       (App (..), AttrMap, AttrName,
@@ -29,7 +30,7 @@ import           Linear.V2                   (V2 (V2))
 import           Data.Function               ((&))
 import           Snake                       (Direction (..), Game, dead, food,
                                               height, initGame, initialSpeed,
-                                              interval, mkCoord, score, snake,
+                                              interval, mkCoord, score, snakeL,
                                               speed, step, turn, width)
 
 -- | Ticks mark the passing of tunfoldime
@@ -45,6 +46,7 @@ type Name = ()
 
 data Cell
   = Snake
+  | SnakeHead
   | Food
   | Empty
 
@@ -140,7 +142,6 @@ speedInc =
   0.01
 
 -- GUI WORK
-
 drawUI
   :: Game
   -> [Widget Name]
@@ -179,25 +180,28 @@ drawGrid g = B.withBorderStyle BS.unicodeBold
     drawCoord = drawCell . cellAt
 
     cellAt c
-      | g ^. snake . _Wrapped . to (any (== c) ) = Snake
-      | c == g ^. food                           = Food
-      | otherwise                                = Empty
+      | g ^. snakeL . to (\(h:|_) -> h == c )       = SnakeHead
+      | g ^. snakeL . to (\(_:|t) -> any (== c) t ) = Snake
+      | c == g ^. food                              = Food
+      | otherwise                                   = Empty
 
 drawCell
   :: Cell
   -> Widget Name
-drawCell Snake = B.withAttr snakeAttr cw
-drawCell Food  = B.withAttr foodAttr cw
-drawCell Empty = B.withAttr emptyAttr cw
+drawCell Snake     = B.withAttr snakeAttr cw
+drawCell SnakeHead = B.withAttr snakeHeadAttr cw
+drawCell Food      = B.withAttr foodAttr cw
+drawCell Empty     = B.withAttr emptyAttr cw
 
 cw :: Widget Name
 cw = B.str " "
 
-snakeAttr, foodAttr, emptyAttr, gameOverAttr :: AttrName
-snakeAttr = "snakeAttr"
-foodAttr  = "foodAttr"
-emptyAttr = "emptyAttr"
-gameOverAttr = "gameOver"
+snakeAttr, snakeHeadAttr,  foodAttr, emptyAttr, gameOverAttr :: AttrName
+snakeHeadAttr = "snakeHeadAttr"
+snakeAttr     = "snakeAttr"
+foodAttr      = "foodAttr"
+emptyAttr     = "emptyAttr"
+gameOverAttr  = "gameOver"
 
 theMap
   :: AttrMap
@@ -205,4 +209,5 @@ theMap = B.attrMap V.defAttr
   [ (snakeAttr, V.blue `B.on` V.blue)
   , (foodAttr, V.red `B.on` V.red)
   , (gameOverAttr, B.fg V.red `V.withStyle` V.bold)
+  , (snakeHeadAttr, V.green `B.on` V.green)
   ]
