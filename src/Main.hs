@@ -10,6 +10,8 @@ import           Control.Lens                (to, (.~), (^.), _Wrapped)
 import           Control.Monad               (forever)
 import           Control.Monad.IO.Class      (liftIO)
 
+import           Data.Monoid                 ((<>))
+
 import           Brick                       (App (..), AttrMap, AttrName,
                                               BrickEvent (..), EventM, Next,
                                               Padding (..), Widget, (<+>))
@@ -85,7 +87,7 @@ printResult
   -> IO ()
 printResult g = putStrLn $
   if g ^. score . to (> 0)
-  then "OMG"
+  then "OMG : " <> (g ^. score . to show)
   else "OH NOES"
 
 handleEvent

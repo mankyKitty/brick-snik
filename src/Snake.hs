@@ -1,11 +1,11 @@
-{-# LANGUAGE RankNTypes      #-}
-{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE RankNTypes       #-}
+{-# LANGUAGE TemplateHaskell  #-}
 module Snake where
 
 import           Control.Concurrent.STM.TVar (TVar)
-import           Control.Lens                (makeLenses, to, (.~), (^.), (%~),
-                                              _Wrapped)
+import           Control.Lens                (Lens', makeLenses, to, (%~), (.~),
+                                              (^.), _Wrapped)
 
 import           Data.Function               ((&))
 import           Data.List.NonEmpty          (NonEmpty)
@@ -54,6 +54,18 @@ data Game = Game
   }
 makeLenses ''Game
 
+
+snakeL
+  :: Lens' Game (NonEmpty Coord)
+snakeL =
+  snake . _Wrapped
+
+nextH
+  :: Game
+  -> Coord
+nextH g =
+  nextHead (g ^. dir) (g ^. snake)
+
 height, width :: Int
 height = 20
 width = 20
@@ -62,17 +74,20 @@ step
   :: Game
   -> Game
 step g =
-  if g ^. paused || g ^. dead
-  then g
-  else move . die $ eatFood g
+  let ohMy = die g
+  in
+    if ohMy ^. paused || ohMy ^. dead
+    then ohMy
+    else move $ eatFood ohMy
 
 -- | Possibly die if next head position is disallowed
 die
   :: Game
   -> Game
 die g =
-  let mHead      = g ^. snake . _Wrapped . to NE.head
-      hitSnake h = g ^. snake . _Wrapped . to (any (== h ))
+  let nHead  = nextH g
+
+      hitSnake h = g ^. snakeL . to (any (== h ))
 
       hitWall
         :: Coord
@@ -81,10 +96,9 @@ die g =
         let x' = h ^. _Wrapped . L._x
             y' = h ^. _Wrapped . L._y
         in
-          ( x' <= 0 || x' >= width ) || ( y' <= 0 || y' >= height )
-
+          ( x' == 0 || x' == width ) || ( y' == 0 || y' == height )
   in
-    if hitWall mHead || hitSnake (nextHead (g^.dir) (g^.snake))
+    if hitWall nHead || hitSnake nHead
     then g & dead .~ True
     else g
 
@@ -93,11 +107,11 @@ eatFood
   :: Game
   -> Game
 eatFood g =
-  let nh = nextHead (g ^. dir) (g ^. snake)
+  let nh = nextH g
   in
     if g ^. food . to ( == nh )
     then nextFood $ g
-         & snake . _Wrapped %~ NE.cons nh
+         & snakeL %~ NE.cons nh
          & score %~ (+ 1)
     else g
 
@@ -116,9 +130,7 @@ move
   :: Game
   -> Game
 move g =
-  let nextH = nextHead (g ^. dir) (g ^. snake)
-  in
-    g & snake . _Wrapped %~ (( nextH NE.:| ) . NE.init)
+  g & snakeL %~ (( ( nextH g ) NE.:| ) . NE.init)
 
 nextHead
   :: Direction
