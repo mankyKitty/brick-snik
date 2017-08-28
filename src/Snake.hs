@@ -144,11 +144,9 @@ nextHead d s =
     W -> sL & _Wrapped . L._x %~ ( f (subtract 1) width )
   where
     f g b c = (g c) `mod` b
-    sL = s ^. _Wrapped . to NE.head
+    sL      = s ^. _Wrapped . to NE.head
 
 -- | Turn game direction (only turns orthogonally)
---
--- Implicitly unpauses yet freezes game
 turn
   :: Direction
   -> Game
@@ -167,13 +165,11 @@ rCoord
   :: StdGen
   -> (Coord, StdGen)
 rCoord sg =
-  let (w, sg') = rInBnds width sg
-      (h, sg'') = rInBnds height sg'
+  let rInBnds b g = randomR ( 0, (b - 1) ) g
+      (w, sg')    = rInBnds width sg
+      (h, sg'')   = rInBnds height sg'
   in
     (mkCoord (V2 w h), sg'')
-  where
-    rInBnds b g =
-      randomR ( 0, (b - 1) ) g
 
 -- | Initialise a paused game with random food location
 initGame
@@ -190,4 +186,3 @@ initGame tickVar = do
     tickVar
     initialSpeed
     foodGen
-
