@@ -1,34 +1,37 @@
+{-# LANGUAGE RankNTypes      #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE FlexibleContexts #-}
 module Snake where
 
-import Control.Lens (makeLenses, (^.), (.~))
+import           Control.Concurrent.STM.TVar (TVar)
+import           Control.Lens                (makeLenses, to, (.~), (^.), (%~),
+                                              _Wrapped)
 
-import Data.Function ((&))
-import Data.Maybe (fromMaybe)
-import Data.Tagged (Tagged (..))
+import           Data.Function               ((&))
+import           Data.List.NonEmpty          (NonEmpty)
+import qualified Data.List.NonEmpty          as NE
+import           Data.Tagged                 (Tagged (..))
 
+import           Linear.V2                   (V2 (..))
+import qualified Linear.V2                   as L
 
-data Game = Game
-  { _snake :: Snake
-  , _dir :: Direction
-  , _food :: Coord
-  , _foods :: Stream Coord
-  , _dead :: Bool
-  , _paused :: Bool
-  , _score :: Int
-  , _frozen :: Bool
-  }
-  deriving Show
-makeLenses ''Game
+import           System.Random               (Random (..), StdGen, newStdGen)
 
 data Coord'
 type Coord = Tagged Coord' (V2 Int)
 
-data Snake'
-type Snake = Tagged Snake' Coord
+mkCoord
+  :: V2 Int
+  -> Coord
+mkCoord = Tagged
 
-data Stream a = a :| Stream a
-  deriving Show
+data Snake'
+type Snake = Tagged Snake' (NonEmpty Coord)
+
+mkSnake
+  :: Coord
+  -> Snake
+mkSnake = Tagged . ( NE.:| [] )
 
 data Direction
   = N
@@ -37,32 +40,99 @@ data Direction
   | W
   deriving (Eq, Show)
 
-gameStep
+data Game = Game
+  { _snake    :: Snake
+  , _dir      :: Direction
+  , _food     :: Coord
+  , _dead     :: Bool
+  , _paused   :: Bool
+  , _frozen   :: Bool
+  , _score    :: Int
+  , _interval :: TVar Float
+  , _speed    :: Float
+  , _rGen     :: StdGen
+  }
+makeLenses ''Game
+
+height, width :: Int
+height = 20
+width = 20
+
+step
   :: Game
   -> Game
-gameStep g = fromMaybe g $ do
-  guard (not $ g ^. paused || g ^. dead)
-  let g' = g & frozen .~ False
-  return .fromMaybe (move g') $ die g' <|> eatFood g'
+step g =
+  if g ^. paused || g ^. dead
+  then g
+  else move . die $ eatFood g
 
 -- | Possibly die if next head position is disallowed
 die
   :: Game
-  -> Maybe Game
-die = undefined
+  -> Game
+die g =
+  let mHead      = g ^. snake . _Wrapped . to NE.head
+      hitSnake h = g ^. snake . _Wrapped . to (any (== h ))
+
+      hitWall
+        :: Coord
+        -> Bool
+      hitWall h  =
+        let x' = h ^. _Wrapped . L._x
+            y' = h ^. _Wrapped . L._y
+        in
+          ( x' <= 0 || x' >= width ) || ( y' <= 0 || y' >= height )
+
+  in
+    if hitWall mHead || hitSnake (nextHead (g^.dir) (g^.snake))
+    then g & dead .~ True
+    else g
 
 -- | Possibly eat food if next head position is food
-eatFood 
+eatFood
   :: Game
-  -> Maybe Game
-eatFood = undefined
+  -> Game
+eatFood g =
+  let nh = nextHead (g ^. dir) (g ^. snake)
+  in
+    if g ^. food . to ( == nh )
+    then nextFood $ g
+         & snake . _Wrapped %~ NE.cons nh
+         & score %~ (+ 1)
+    else g
+
+-- | Set a valid next food Coord
+nextFood
+  :: Game
+  -> Game
+nextFood g =
+  let (nFood, foodGen) = g ^. rGen . to rCoord
+  in
+    g & food .~ nFood
+      & rGen .~ foodGen
 
 -- | Move snake along in a marquee fashion
 move
   :: Game
   -> Game
-move =
-  undefined
+move g =
+  let nextH = nextHead (g ^. dir) (g ^. snake)
+  in
+    g & snake . _Wrapped %~ (( nextH NE.:| ) . NE.init)
+
+nextHead
+  :: Direction
+  -> Snake
+  -> Coord
+nextHead d s =
+  case d of
+    N -> sL & _Wrapped . L._y %~ ( f (+1) height )
+    S -> sL & _Wrapped . L._y %~ ( f (subtract 1) height )
+    E -> sL & _Wrapped . L._x %~ ( f (+1) width )
+    W -> sL & _Wrapped . L._x %~ ( f (subtract 1) width )
+  where
+    f g b c = (g c) `mod` b
+    sL = s ^. _Wrapped . to NE.head
 
 -- | Turn game direction (only turns orthogonally)
 --
@@ -71,11 +141,41 @@ turn
   :: Direction
   -> Game
   -> Game
-turn =
-  undefined
+turn nDir g
+  | g ^. frozen = g
+  | g ^. paused = g
+  | otherwise   = g & dir .~ nDir
+
+initialSpeed
+  :: Float
+initialSpeed =
+  1.00
+
+rCoord
+  :: StdGen
+  -> (Coord, StdGen)
+rCoord sg =
+  let (w, sg') = rInBnds width sg
+      (h, sg'') = rInBnds height sg'
+  in
+    (mkCoord (V2 w h), sg'')
+  where
+    rInBnds b g =
+      randomR ( 0, (b - 1) ) g
 
 -- | Initialise a paused game with random food location
 initGame
-  :: IO Game
-initGame =
-  undefined
+  :: TVar Float
+  -> IO Game
+initGame tickVar = do
+  (startFood, foodGen) <- rCoord <$> newStdGen
+  pure . nextFood $ Game
+    ( mkSnake . mkCoord $ V2 (width `div` 2) (height `div` 2) )
+    N
+    startFood
+    False False False
+    0
+    tickVar
+    initialSpeed
+    foodGen
+
